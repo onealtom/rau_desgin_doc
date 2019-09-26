@@ -1,0 +1,58 @@
+== Digital circuit hardware test
+
+- [*] Pass  ( Hardware test only )
+- [ ] Not test
+
+---
+
+* SoC
+- [*]  CPU XC7Z100
+- [*] DEGBU UART
+- [ ] GPS DATA/CONTROL RS422
+- [*] 以太网
+- [ ] USB
+- [*] JTAG
+- [*] Watch dog
+
+* Storage
+- [*] DDR ( MT41K256M16TW )
+- [*] QSPI Flash (MT25QL128)
+- [*] TF Card 
+- [*] eMMC Flash ( MTFC4GACAJCN )
+
+*  Peripheral
+- [ ] RTC (DS1302)
+- [ ] ADC (TLA2021)
+- [ ] DAC (DAC121C)
+- [ ] Auxiliary  MCU
+
+* Clock Generator
+- [*] AD9528
+- [*] AD9545
+
+* RF Transceiver (AD9371)
+- [*] AD9371 A Config
+- [*] AD9371 B Config
+- [*] AD9371 C Config
+- [*] AD9371 D Config
+- [ ] AD9371  AUXADC
+
+* IO
+- [*] Alarm1
+- [*] Alarm2
+- [*] Alarm3
+- [*] Alarm4
+- [*] Maintenance button
+- [*] Factory Restore button
+- [*] LEDs
+
+* FAN
+- [ ] FAN1
+- [ ] FAN2
+- [ ] FAN3
+
+* SFP
+- [ ] SFP1 port
+- [ ] SFP2 port
+- [ ] SFP3 port
+- [ ] SFP4 port
