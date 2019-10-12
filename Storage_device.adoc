@@ -1,0 +1,226 @@
+
+
+== 系统存储构成
+
+在分配存储空间之前，先来罗列下有哪些最基本的程序或数据，需要存放到板子的存储设备上，构成RAU最小系统的模块有：
+
+
+
+
+Bootloader:::
+包括了FSBL和U-Boot，保存在SPI Flash上的0地址上，只保存一份，因为SoC只会从这里开始加载程序。
+
+env:::
+U-Boot的环境变量，是一块SPI Flash上的mtd分区，在系统上和U-Boot上都能够访问，有备份分区但还没设计好备份恢复条件。将用来作为系统与Bootloader之间的信息交换，当前区与备份区乒乓操作时将会详细描述这部分流程。
+
+bitstream:::
+FPGA 的固件。
+
+Kernel:::
+Linux内核镜像。
+
+devicetree:::
+Linux内核的板级外设配置树
+
+rootfs:::
+根文件系统，相当于windows的C盘系统文件夹。
+
+psp程序:::
+其他一些依赖程序
+
+oam程序:::
+RAU的网管系统程序
+
+RAU板上有两个存储设备，一片16MB的SPI Flash，一片4GB的eMMC，现就需求为以上这些模块分配存储空间。
+
+=== SPI Flash分区
+
+spi flash采用原始分区格式，
+
+
+.spi flash partation
+[width="100%",options="header,footer"]
+|====================
+| 分区号 | 起始地址    | 结束地址    | Size            | 备注
+| mtd0   | 0x00000000 | 0x003FFFFF | 0x00400000(4MB) | Bootloader
+| mtd1   | 0x00400000 | 0x004FFFFF | 0x00100000(1MB) | U-Boot环境变量
+| mtd2   | 0x00500000 | 0x005FFFFF | 0x00100000(1MB) | U-Boot环境变量备份
+| mtd3   | 0x00600000 | 0x006FFFFF | 0x00100000(1MB) | 可存放序列号, MAC地址, 测量固有增益
+| otp区域   |  |  |  | 测量固有增益
+|====================
+
+.spi flash partation
+[width="100%",options="header,footer"]
+|====================
+| 分区号 | 起始地址    | 结束地址    | Size            | 备注
+| mtd0   | 0x 0000 0000 | 0x 003F FFFF | 0x00400000(4MB) | Bootloader
+| mtd2   | 0x 0040 0000 | 0x 004F FFFF | 0x00100000(1MB) | 可存放序列号, MAC地址, 测量固有增益
+| mtd3   | 0x0080 0000 | 0x 008F FFFF | 0x00100000(1MB) | U-Boot环境变量  
+| mtd3   | 0x0090 0000 | 0x 009F FFFF | 0x00100000(1MB) |  U-Boot环境变量备份
+| otp区域   |  |  |  | 测量固有增益
+|====================
+
+```
+sf protect lock 0x00 0x400000
+```
+只保护mtd0
+
+=== eMMC分区设计
+
+.eMMC partation
+[width="100%",options="header,footer"]
+|====================
+| dev node        | Label |Capacity  | Slot   | mount point
+|/dev/mmcblk1p1   | bloA  |64MiB     | A      | 不自动挂载
+|/dev/mmcblk1p2   | sysA  |160MiB    | A      | /
+|/dev/mmcblk1p3   | pspA  |64MiB     | A      | /psp
+|/dev/mmcblk1p4   | bloB  |64MiB     | B      | 不自动挂载
+|/dev/mmcblk1p5   | sysB  |160MiB    | B      | /
+|/dev/mmcblk1p6   | pspB  |64MiB     | B      | /psp
+|/dev/mmcblk1p7   | oam   |128MiB    | public | /oam
+|/dev/mmcblk1p8   | uda   |64MiB     | public | /uda
+|/dev/mmcblk1p9   | log   |64MiB     | public | /log
+|/dev/mmcblk1p10  | rsv   |64MiB     | public |
+|/dev/mmcblk1p11  | bak   |2048MiB   | public | /bak
+|/dev/mmcblk1p12  | other |~MiB      | public |
+|====================
+
+
+=== eMMC分区设计
+
+分区是在出厂烧写前完成，出厂后，不再变更，只在生产时运行一次。
+
+[line-through]#分区类型时MBR，分区表保存在eMMC开头的扇区上，2个主分区，其余都是扩展分区，MBR至多4个主分区。都格式化成EXT4文件系统格式。容量如下脚本所示。#
+
+分区采用GPT分区，分区格式除了第一和第二个分区为FAT32，其余为EXT4格式。
+
+[source,c]
+----
+#define LINUX_4GB_PARTITION_TABLE \
+	"\"start=2MiB," \
+	"name=bloA,size=64MiB;" \
+	"name=sysA,size=176MiB;" \
+	"name=pspA,size=64MiB;" \
+	"name=bloB,size=64MiB;" \
+	"name=sysB,size=176MiB;" \
+	"name=pspB,size=64MiB;" \
+	"name=oam,size=128MiB;" \
+	"name=uda,size=64MiB;" \
+	"name=log,size=64MiB;" \
+	"name=rsv,size=64MiB;" \
+	"name=bak,size=2048MiB;" \
+	"name=ots,size=-;" \
+	"\""
+
+#define PARAMETERS_EMMC \
+	"partition_emmc=mmc rescan;" \
+		"if mmc dev 1 0; then " \
+			"gpt write mmc 1 " LINUX_4GB_PARTITION_TABLE ";" \
+			"mmc rescan;" \
+		"else " \
+			"if mmc dev 1;then " \
+				"gpt write mmc 1 " LINUX_4GB_PARTITION_TABLE ";" \
+				"mmc rescan;" \
+			"else;" \
+			"fi;" \
+		"fi;\0" \
+----
+<1> sys1
+<2> sys2
+<3> 扩展分区
+<4> opt1
+<5> opt2
+<6> nms1
+<7> nms2
+<8> 保留1
+<9> 保留2
+<10> 保留3
+<11> 保留4
+<12> 剩余 设置
+
+执行分区脚本后，成功信息如下，每一颗eMMC具体容量不一定相同，大致为3.6GB。
+
+[source,bash]
+----
+Disk /dev/mmcblk1: 3.6 GiB, 3850371072 bytes, 7520256 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: 00042021-0408-4601-9DCC-A8C51255994F
+
+Device            Start     End Sectors  Size Type
+/dev/mmcblk1p1     4096  135167  131072   64M Microsoft basic data
+/dev/mmcblk1p2   135168  266239  131072   64M Microsoft basic data
+/dev/mmcblk1p3   266240  528383  262144  128M Microsoft basic data
+/dev/mmcblk1p4   528384  790527  262144  128M Microsoft basic data
+/dev/mmcblk1p5   790528 1052671  262144  128M Microsoft basic data
+/dev/mmcblk1p6  1052672 1314815  262144  128M Microsoft basic data
+/dev/mmcblk1p7  1314816 1839103  524288  256M Microsoft basic data
+/dev/mmcblk1p8  1839104 2363391  524288  256M Microsoft basic data
+/dev/mmcblk1p9  2363392 2625535  262144  128M Microsoft basic data
+/dev/mmcblk1p10 2625536 2887679  262144  128M Microsoft basic data
+/dev/mmcblk1p11 2887680 3411967  524288  256M Microsoft basic data
+/dev/mmcblk1p12 3411968 7520222 4108255    2G Microsoft basic data
+----
+
+
+
+== Digital circuit hardware test
+
+- [*] Pass  ( Hardware test only )
+- [ ] Not test
+
+---
+
+* SoC
+- [*]  CPU XC7Z100
+- [*] DEGBU UART
+- [ ] GPS DATA/CONTROL RS422
+- [*] 以太网
+- [ ] USB
+- [*] JTAG
+- [*] Watch dog
+
+* Storage
+- [*] DDR ( MT41K256M16TW )
+- [*] QSPI Flash (MT25QL128)
+- [*] TF Card 
+- [*] eMMC Flash ( MTFC4GACAJCN )
+
+*  Peripheral
+- [ ] RTC (DS1302)
+- [ ] ADC (TLA2021)
+- [ ] DAC (DAC121C)
+- [ ] Auxiliary  MCU
+
+* Clock Generator
+- [*] AD9528
+- [*] AD9545
+
+* RF Transceiver (AD9371)
+- [*] AD9371 Config A
+- [*] AD9371 Config B
+- [*] AD9371 Config C
+- [*] AD9371 Config D
+- [ ] AD9371  AUXADC
+
+* IO
+- [*] Alarm1
+- [*] Alarm2
+- [*] Alarm3
+- [*] Alarm4
+- [*] Maintenance button
+- [*] Factory Restore button
+- [*] LEDs
+
+* FAN
+- [ ] FAN1
+- [ ] FAN2
+- [ ] FAN3
+
+* SFP
+- [ ] SFP1 mod port
+- [ ] SFP2 mod port
+- [ ] SFP3 mod port
+- [ ] SFP4 mod port
